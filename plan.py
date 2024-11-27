@@ -194,6 +194,22 @@ def dynamic_path_planning(start, goal, obstacles, bounds):
                 if (grid_x, grid_y) not in obstacles:
                     obstacles.append((grid_x, grid_y))
 
+            elif (
+                event.type == pygame.KEYDOWN and event.key == pygame.K_g
+            ):  # Goal setting
+                mouse_x, mouse_y = pygame.mouse.get_pos()
+                grid_x = mouse_x // grid_scale
+                grid_y = mouse_y // grid_scale
+                goal = Node(grid_x, grid_y, 0, 0)  # Update goal
+                path, search_tree_edges = hybrid_a_star(
+                    Node(robot_pos[0], robot_pos[1], robot_theta, 0),
+                    goal,
+                    obstacles,
+                    bounds,
+                    robot_pos,
+                )
+                path_index = 0  # Reset path index
+
         screen.fill((255, 255, 255))
 
         # Draw grid
