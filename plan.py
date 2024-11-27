@@ -9,8 +9,8 @@ class Constants:
     RESOLUTION = 1
     ANGLE_RESOLUTION = 15
     GOAL_TOLERANCE = 1
-    SCREEN_SIZE = 600
-    GRID_SIZE = 15
+    SCREEN_SIZE = 1000  # Increased screen size for larger grid
+    GRID_SIZE = 50  # Updated grid size
     VISION_RADIUS = 2
     VEHICLE_WIDTH = 0.5  # Width of the vehicle
     VEHICLE_LENGTH = 1  # Length of the vehicle
@@ -18,7 +18,7 @@ class Constants:
     MAX_STEERING_ANGLE = 30  # Degrees
     TURNING_RADIUS = WHEEL_BASE / sin(radians(MAX_STEERING_ANGLE))
     STEP_SIZE = 1
-    GRID_SCALE = SCREEN_SIZE // GRID_SIZE
+    GRID_SCALE = SCREEN_SIZE // GRID_SIZE  # Updated grid scale
 
 
 # Node class
@@ -183,14 +183,16 @@ class HybridAStar:
         return successor
 
     def calculate_cost(self, current, successor):
-        # Implement cost calculation, including penalties for reversing, steering changes, etc.
-        cost = Constants.STEP_SIZE
+        cost = 0
         if successor.direction != current.direction:
-            cost += Constants.STEP_SIZE  # Penalty for changing direction
-        if successor.theta != current.theta:
-            cost += Constants.STEP_SIZE  # Penalty for steering
+            if successor.direction == -1:
+                cost += 10
+
         if successor.direction == -1:
-            cost += 1000000000000000000000000
+            cost += 5
+
+        # if successor.theta != current.theta:
+        #     cost += 1
         return cost
 
     def reconstruct_path(self, node):
@@ -203,7 +205,7 @@ class HybridAStar:
 
     def search(self):
         heapq.heappush(self.open_set, (self.heuristic(self.start), self.start))
-        max_iterations = 10000
+        max_iterations = 1000000
         iterations = 0
 
         while self.open_set and iterations < max_iterations:
@@ -226,13 +228,18 @@ class HybridAStar:
                 successor_key = self.get_state_key(successor)
                 if successor_key in self.closed_set:
                     continue
-                total_cost = successor.cost + self.heuristic(successor)
+                total_cost = (
+                    successor.cost
+                    + self.heuristic(successor)
+                    + self.calculate_cost(current, successor)
+                )
                 heapq.heappush(self.open_set, (total_cost, successor))
                 self.search_tree_edges.append((current, successor))
         return False
 
 
 def dynamic_path_planning(start, goal, obstacles, bounds):
+
     pygame.init()
     screen = pygame.display.set_mode((Constants.SCREEN_SIZE, Constants.SCREEN_SIZE))
     clock = pygame.time.Clock()
@@ -461,22 +468,45 @@ def dynamic_path_planning(start, goal, obstacles, bounds):
 
 
 # Example usage
-start = Node(1, 1, 0, 0)
-goal = Node(12, 12, 0, 0)
-obstacles = [
-    (5, 5),
-    (6, 5),
-    (7, 5),
-    (12, 5),
-    (13, 5),
-    (5, 6),
-    (5, 7),
-    (8, 5),
-    (9, 5),
-    (10, 5),
-    (11, 5),
-]
-bounds = (0, 15, 0, 15)
+start = Node(8, 8, 0, 0)
+goal = Node(40, 40, 0, 0)
+
+grid_size = 50
+lane_thickness = 2
+lane_spacing = 8
+cross_lines_thick = []
+
+# Add horizontal and vertical lines with 2-block thickness
+for i in range(0, grid_size + 1, lane_spacing):
+    # Horizontal lines with thickness
+    for t in range(-lane_thickness // 2, lane_thickness // 2 + 1):
+        cross_lines_thick.extend(
+            [(x, i + t) for x in range(grid_size + 1) if 0 <= i + t <= grid_size]
+        )
+    # Vertical lines with thickness
+    for t in range(-lane_thickness // 2, lane_thickness // 2 + 1):
+        cross_lines_thick.extend(
+            [(i + t, y) for y in range(grid_size + 1) if 0 <= i + t <= grid_size]
+        )
+
+# Remove duplicates and sort
+cross_lines_thick = sorted(set(cross_lines_thick))
+
+all_points = set((x, y) for x in range(grid_size + 1) for y in range(grid_size + 1))
+
+# Convert cross_lines to a set
+cross_line_points = set(cross_lines_thick)
+
+# Compute R as all grid points excluding cross_lines
+R_points = all_points - cross_line_points
+
+# Convert R_points back to a sorted list of tuples
+R_points = sorted(R_points)
+
+# Remove duplicates and sort
+obstacles = R_points
+
+bounds = (0, 50, 0, 50)
 
 # Run dynamic path planning
 dynamic_path_planning(start, goal, obstacles, bounds)
