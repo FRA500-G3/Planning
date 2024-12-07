@@ -2,11 +2,11 @@
 resolution: 1
 angle_resolution: 15
 goal_tolerance: 1
-screen_size: 1000
-grid_size: 50
+screen_size: 900
+grid_size: 200
 vision_radius: 2
-vehicle_width: 0.5
-vehicle_length: 1
+vehicle_width: 2
+vehicle_length: 5
 wheel_base: 1.0
 max_steering_angle: 30
-step_size: 1
+step_size: 2

@@ -1,8 +1,11 @@
 import pygame
 import numpy as np
 import heapq
+import threading
+from threading import Lock
 from math import sin, cos, tan, radians, degrees, sqrt, pi
 import yaml
+from hybridastar import HybridAStar, Node
 
 # Load configuration from YAML file
 with open("config.yaml", "r") as file:
@@ -25,222 +28,6 @@ class Constants:
     TURNING_RADIUS = WHEEL_BASE / sin(radians(MAX_STEERING_ANGLE))
 
 
-# Node class
-class Node:
-    def __init__(self, x, y, theta, cost, parent=None, direction=1):
-        self.x = x
-        self.y = y
-        self.theta = theta  # Orientation in degrees
-        self.cost = cost
-        self.parent = parent
-        self.direction = direction  # 1 for forward, -1 for reverse
-
-    def __lt__(self, other):
-        return self.cost < other.cost
-
-
-class HybridAStar:
-    def __init__(self, start, obstacles, bounds):
-        self.start = start
-        self.obstacles = obstacles
-        self.bounds = bounds
-        self.open_set = []
-        self.closed_set = set()
-        self.motion_primitives = self.generate_motion_primitives()
-        self.path = []
-        self.search_tree_edges = []
-        self.grid_size_phi = int(360 / Constants.ANGLE_RESOLUTION)
-        self.map_width = int((bounds[1] - bounds[0]) / Constants.RESOLUTION)
-        self.map_height = int((bounds[3] - bounds[2]) / Constants.RESOLUTION)
-        self.obstacle_map = self.create_obstacle_map()
-
-    def create_obstacle_map(self):
-        obstacle_map = np.zeros((self.map_width, self.map_height), dtype=bool)
-        for obs in self.obstacles:
-            x_index = int(obs[0] - self.bounds[0])
-            y_index = int(obs[1] - self.bounds[2])
-            if 0 <= x_index < self.map_width and 0 <= y_index < self.map_height:
-                obstacle_map[x_index, y_index] = True
-        return obstacle_map
-
-    def generate_motion_primitives(self):
-        motions = []
-        max_steering_angle = Constants.MAX_STEERING_ANGLE
-        num_angles = int(max_steering_angle / Constants.ANGLE_RESOLUTION)
-        steering_angles = [
-            i * Constants.ANGLE_RESOLUTION for i in range(-num_angles, num_angles + 1)
-        ]
-        for steering_angle in steering_angles:
-            for direction in [1, -1]:  # Forward and reverse
-                motions.append((steering_angle, direction))
-        return motions
-
-    def get_state_key(self, node):
-        x_index = int(round((node.x - self.bounds[0]) / Constants.RESOLUTION))
-        y_index = int(round((node.y - self.bounds[2]) / Constants.RESOLUTION))
-        theta_index = int(node.theta / Constants.ANGLE_RESOLUTION) % self.grid_size_phi
-        return (x_index, y_index, theta_index)
-
-    def is_valid(self, node):
-        # Check bounds
-        if not (
-            self.bounds[0] <= node.x < self.bounds[1]
-            and self.bounds[2] <= node.y < self.bounds[3]
-        ):
-            return False
-
-        # Check collision with obstacles using the vehicle's footprint
-        vehicle_corners = self.get_vehicle_corners(node)
-        for corner in vehicle_corners:
-            x_index = int(round((corner[0] - self.bounds[0]) / Constants.RESOLUTION))
-            y_index = int(round((corner[1] - self.bounds[2]) / Constants.RESOLUTION))
-            if (
-                x_index < 0
-                or x_index >= self.map_width
-                or y_index < 0
-                or y_index >= self.map_height
-                or self.obstacle_map[x_index, y_index]
-            ):
-                return False
-        # Line collision check between parent and current node
-        if node.parent:
-            if not self.line_collision_check(node.parent, node):
-                return False
-        return True
-
-    def get_vehicle_corners(self, node):
-        w = Constants.VEHICLE_WIDTH / 2.0
-        l = Constants.VEHICLE_LENGTH / 2.0
-        theta_rad = radians(node.theta)
-        cos_theta = cos(theta_rad)
-        sin_theta = sin(theta_rad)
-        corners = []
-        for dx, dy in [
-            (l, w),
-            (l, -w),
-            (-l, w),
-            (-l, -w),
-        ]:
-            x = node.x + dx * cos_theta - dy * sin_theta
-            y = node.y + dx * sin_theta + dy * cos_theta
-            corners.append((x, y))
-        return corners
-
-    def line_collision_check(self, node1, node2):
-        x1, y1 = node1.x, node1.y
-        x2, y2 = node2.x, node2.y
-        dx = x2 - x1
-        dy = y2 - y1
-        distance = sqrt(dx**2 + dy**2)
-        steps = int(distance / (Constants.RESOLUTION / 2))
-        for i in range(steps + 1):
-            t = i / max(steps, 1)
-            x = x1 + t * dx
-            y = y1 + t * dy
-            x_index = int(round((x - self.bounds[0]) / Constants.RESOLUTION))
-            y_index = int(round((y - self.bounds[2]) / Constants.RESOLUTION))
-            if (
-                x_index < 0
-                or x_index >= self.map_width
-                or y_index < 0
-                or y_index >= self.map_height
-                or self.obstacle_map[x_index, y_index]
-            ):
-                return False
-        return True
-
-    def heuristic(self, node):
-        dx = self.goal.x - node.x
-        dy = self.goal.y - node.y
-        distance = sqrt(dx**2 + dy**2)
-        # Tie-breaker to improve performance
-        return distance * (1.0 + 1e-3)
-
-    def is_goal_reached(self, node):
-        dx = self.goal.x - node.x
-        dy = self.goal.y - node.y
-        distance = sqrt(dx**2 + dy**2)
-        dtheta = abs(self.goal.theta - node.theta) % 360
-        if distance < Constants.GOAL_TOLERANCE and dtheta < Constants.ANGLE_RESOLUTION:
-            return True
-        return False
-
-    def create_successor(self, current, motion):
-        steering_angle_deg, direction = motion
-        phi = radians(steering_angle_deg)  # Steering angle in radians
-        theta_rad = radians(current.theta)  # Current heading in radians
-        ds = direction * Constants.STEP_SIZE  # Distance to move
-        if abs(phi) < 1e-6:  # Straight movement
-            x = current.x + ds * cos(theta_rad)
-            y = current.y + ds * sin(theta_rad)
-            theta = current.theta  # No change in heading
-        else:
-            turning_radius = Constants.WHEEL_BASE / tan(phi)
-            delta_theta_rad = ds / turning_radius  # Change in heading in radians
-            theta_rad_next = theta_rad + delta_theta_rad
-            x = current.x + turning_radius * (sin(theta_rad_next) - sin(theta_rad))
-            y = current.y - turning_radius * (cos(theta_rad_next) - cos(theta_rad))
-            theta = degrees(theta_rad_next) % 360
-        cost = current.cost + Constants.STEP_SIZE
-        successor = Node(x, y, theta, cost, current, direction)
-        return successor
-
-    def calculate_cost(self, current, successor):
-        cost = 0
-        if successor.direction != current.direction:
-            if successor.direction == -1:
-                cost += 10
-
-        if successor.direction == -1:
-            cost += 5
-
-        # if successor.theta != current.theta:
-        #     cost += 3
-        return cost
-
-    def reconstruct_path(self, node):
-        path = []
-        while node:
-            path.append(node)
-            node = node.parent
-        path.reverse()
-        return path
-
-    def search(self):
-        heapq.heappush(self.open_set, (self.heuristic(self.start), self.start))
-        max_iterations = 1000000
-        iterations = 0
-
-        while self.open_set and iterations < max_iterations:
-            iterations += 1
-            _, current = heapq.heappop(self.open_set)
-
-            current_key = self.get_state_key(current)
-            if current_key in self.closed_set:
-                continue
-            self.closed_set.add(current_key)
-
-            if self.is_goal_reached(current):
-                self.path = self.reconstruct_path(current)
-                return True
-
-            for motion in self.motion_primitives:
-                successor = self.create_successor(current, motion)
-                if not self.is_valid(successor):
-                    continue
-                successor_key = self.get_state_key(successor)
-                if successor_key in self.closed_set:
-                    continue
-                total_cost = (
-                    successor.cost
-                    + self.heuristic(successor)
-                    + self.calculate_cost(current, successor)
-                )
-                heapq.heappush(self.open_set, (total_cost, successor))
-                self.search_tree_edges.append((current, successor))
-        return False
-
-
 class Simulation:
     def __init__(self, start, goal, obstacles, bounds):
         # Initialize variables, pygame, planner, etc.
@@ -260,7 +47,7 @@ class Simulation:
         self.robot_pos = [start.x, start.y]
         self.robot_theta = start.theta
 
-        self.planner.goal = Node(40, 40, 0, 0)
+        self.planner.goal = goal
         self.found = self.planner.search()
         if not self.found:
             print("No path found!")
@@ -279,6 +66,10 @@ class Simulation:
             self.robot_theta,
         ]
 
+        self.planner_lock = Lock()
+        self.planning = False
+        self.planner_thread = None
+
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -289,7 +80,8 @@ class Simulation:
                 self.handle_mouse_click(event)
 
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_g:
-                self.handle_set_goal()
+                self.planning = False
+                self.planning = self.handle_set_goal()
 
     def handle_mouse_click(self, event):
         # Get mouse position
@@ -314,51 +106,12 @@ class Simulation:
         # Replan
         self.update_planner(replan=True)
 
-    def update_simulation(self):
-        # Move the robot along the path
-        if self.path and self.path_index < len(self.path):
-            target_node = self.path[self.path_index]
-            delta_x = target_node.x - self.robot_pos[0]
-            delta_y = target_node.y - self.robot_pos[1]
-            delta_theta = (
-                target_node.theta - self.robot_theta + 180 + 360
-            ) % 360 - 180  # Shortest angle
-
-            self.robot_pos[0] += delta_x * 0.1
-            self.robot_pos[1] += delta_y * 0.1
-            self.robot_theta += delta_theta * 0.1
-
-            if sqrt(delta_x**2 + delta_y**2) < 0.1 and abs(delta_theta) < 1:
-                self.path_index += 1
-
-            # Record previous position if moved enough
-            if (
-                sqrt(
-                    (self.robot_pos[0] - self.last_recorded_pos[0]) ** 2
-                    + (self.robot_pos[1] - self.last_recorded_pos[1]) ** 2
-                )
-                >= 0.5
-            ):
-                self.previous_positions.append(
-                    (
-                        self.last_recorded_pos[0],
-                        self.last_recorded_pos[1],
-                        self.robot_theta,
-                    )
-                )
-                self.last_recorded_pos = [
-                    self.robot_pos[0],
-                    self.robot_pos[1],
-                    self.robot_theta,
-                ]
-
-    def update_planner(self, replan=False):
-        if replan:
-
+    def run_planner(self):
+        with self.planner_lock:
+            # Prepare planner state
             self.planner.start = Node(
                 self.robot_pos[0], self.robot_pos[1], self.robot_theta, 0
             )
-
             self.planner.obstacles = self.obstacles
             self.planner.bounds = self.bounds
             self.planner.open_set = []
@@ -368,12 +121,69 @@ class Simulation:
             self.planner.path = []
             self.planner.search_tree_edges = []
             self.planner.goal = self.goal
-            self.found = self.planner.search()
 
-            if not self.found:
+        found = False
+        # Now run the search outside the lock if the search uses open_set frequently
+        # If needed, lock/unlock around heapq operations inside the search method as well.
+        found = (
+            self.planner.search()
+        )  # Make sure search does not modify open_set without a lock
+
+        # Update results back under lock if modifying shared data
+        with self.planner_lock:
+            self.found = found
+            if not found:
                 print("No path found!")
             self.path = self.planner.path
             self.path_index = 0
+            self.planning = False
+
+    def update_simulation(self):
+        pass
+        # Move the robot along the path
+        # if self.path and self.path_index < len(self.path):
+        #     target_node = self.path[self.path_index]
+        #     delta_x = target_node.x - self.robot_pos[0]
+        #     delta_y = target_node.y - self.robot_pos[1]
+        #     delta_theta = (
+        #         target_node.theta - self.robot_theta + 180 + 360
+        #     ) % 360 - 180  # Shortest angle
+
+        #     self.robot_pos[0] += delta_x * 1
+        #     self.robot_pos[1] += delta_y * 1
+        #     self.robot_theta += delta_theta * 1
+
+        #     if sqrt(delta_x**2 + delta_y**2) < 0.1 and abs(delta_theta) < 1:
+        #         self.path_index += 1
+
+        #     # Record previous position if moved enough
+        #     if (
+        #         sqrt(
+        #             (self.robot_pos[0] - self.last_recorded_pos[0]) ** 2
+        #             + (self.robot_pos[1] - self.last_recorded_pos[1]) ** 2
+        #         )
+        #         >= 0.5
+        #     ):
+        #         self.previous_positions.append(
+        #             (
+        #                 self.last_recorded_pos[0],
+        #                 self.last_recorded_pos[1],
+        #                 self.robot_theta,
+        #             )
+        #         )
+        #         self.last_recorded_pos = [
+        #             self.robot_pos[0],
+        #             self.robot_pos[1],
+        #             self.robot_theta,
+        #         ]
+
+    def update_planner(self, replan=False):
+        # Only start re-planning if not already planning
+        if replan and not self.planning:
+            self.planning = True
+            # Start the planner thread
+            self.planner_thread = threading.Thread(target=self.run_planner)
+            self.planner_thread.start()
 
     def draw(self):
         self.screen.fill((255, 255, 255))
