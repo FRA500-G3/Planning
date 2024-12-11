@@ -24,7 +24,7 @@ class Constants:
 
 
 class Node:
-    def __init__(self, x, y, theta, cost, parent=None, direction=1):
+    def __init__(self, x, y, theta, cost=0, parent=None, direction=1):
         self.x = x
         self.y = y
         self.theta = theta  # Orientation in degrees
@@ -37,17 +37,26 @@ class Node:
 
 
 class HybridAStar:
-    def __init__(self, obstacles, bounds, angle_resolution, resolution):
+    def __init__(self, obstacles, angle_resolution, resolution):
         self.obstacles = obstacles
-        self.bounds = bounds
+        # Separate x and y coordinates
+        xs = [x for x, y in obstacles]
+        ys = [y for x, y in obstacles]
+
+        # Compute min and max
+        min_x = min(xs)
+        max_x = max(xs)
+        min_y = min(ys)
+        max_y = max(ys)
+        self.bounds = (min_x, max_x, min_y, max_y)
         self.angle_resolution = angle_resolution
         self.resolution = resolution
 
         self.motion_primitives = self.generate_motion_primitives()
 
         self.grid_size_phi = int(360 / self.angle_resolution)
-        self.map_width = int((bounds[1] - bounds[0]) / self.resolution)
-        self.map_height = int((bounds[3] - bounds[2]) / self.resolution)
+        self.map_width = int((self.bounds[1] - self.bounds[0]) / self.resolution)
+        self.map_height = int((self.bounds[3] - self.bounds[2]) / self.resolution)
 
         self.obstacle_map = self.create_obstacle_map()
 
@@ -229,10 +238,16 @@ class HybridAStar:
         path.reverse()
         return path
 
-    def search(self, start):
+    def search(self, start, goal):
+
+        self.goal = Node(goal.x, goal.y, goal.theta, 0)
         self.searching = True
         # Clear visited array for a new search
         self.visited.fill(False)
+        self.obstacles = self.obstacles
+        self.open_set = []
+        self.closed_set = set()
+        self.search_tree_edges = []
 
         # Push the start node into open_set
         heapq.heappush(self.open_set, (self.heuristic(start), start))

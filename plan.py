@@ -6,8 +6,8 @@ with open("config.yaml", "r") as file:
     config = yaml.safe_load(file)
 if __name__ == "__main__":
     # Initialize start, goal, obstacles, bounds
-    start = Node(0, 0, 0, 0)
-    goal = Node(0, 0, 0, 0)
+    start = Node(0, 0, 0)
+    goal = Node(0, 0, 0)
 
     grid_size = config["grid_size"]
     lane_thickness = 1
@@ -54,12 +54,20 @@ if __name__ == "__main__":
     ]
     # Remove duplicates and sort
     # obstacles = inverted_grid
+    with open("Town05_road_grid_origin.txt", "r") as file:
+        # Read lines and parse coordinates
+        obstacles = []
+        for line in file:
+            try:
+                x, y = map(float, line.strip().split(","))
+                obstacles.append((x, y))
+            except ValueError:
+                continue  # Skip invalid lines
 
-    bounds = (-10, config["grid_size"], -10, config["grid_size"])
     # bounds = (0, 50, 0, 50)
 
     # Run simulation
     # planner = HybridAStar(start, goal, obstacles, bounds)
 
-    simulation = Simulation(start, goal, obstacles, bounds)
+    simulation = Simulation(start, goal, obstacles)
     simulation.run()

@@ -62,9 +62,11 @@ class Constants:
 
 
 class Simulation:
-    def __init__(self, start, goal, obstacles, bounds):
+    def __init__(self, start, goal, obstacles):
         # Initialize variables, pygame, planner, etc.
+
         pygame.init()
+        pygame.key.set_repeat(200, 50)
         self.screen = pygame.display.set_mode(
             (Constants.SCREEN_SIZE, Constants.SCREEN_SIZE)
         )
@@ -73,7 +75,6 @@ class Simulation:
         self.angle_resolution = Constants.ANGLE_RESOLUTION
         self.planner = HybridAStar(
             obstacles=obstacles,
-            bounds=bounds,
             angle_resolution=self.angle_resolution,
             resolution=Constants.RESOLUTION,
         )
@@ -81,14 +82,12 @@ class Simulation:
         self.start = start
         self.goal = goal
         self.obstacles = obstacles
-        self.bounds = bounds
 
         self.grid_scale = Constants.GRID_SCALE
         self.robot_pos = [start.x, start.y]
         self.robot_theta = start.theta
 
-        self.planner.goal = goal
-        self.found = self.planner.search(self.start)
+        self.found = self.planner.search(self.start, self.goal)
         if not self.found:
             print("No path found!")
         self.path = self.planner.path
@@ -105,6 +104,9 @@ class Simulation:
             self.robot_pos[1],
             self.robot_theta,
         ]
+
+        self.offset_x = 100
+        self.offset_y = 100
 
         self.planner_lock = Lock()
         self.planning = False
@@ -123,14 +125,24 @@ class Simulation:
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_g:
                 self.planning = False
                 self.planning = self.handle_set_goal()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_LEFT:
+                    self.offset_x += self.grid_scale
+                elif event.key == pygame.K_RIGHT:
+                    self.offset_x -= self.grid_scale
+                elif event.key == pygame.K_UP:
+                    self.offset_y += self.grid_scale
+                elif event.key == pygame.K_DOWN:
+                    self.offset_y -= self.grid_scale
 
     def handle_mouse_click(self, event):
         # Get mouse position
         mouse_x, mouse_y = pygame.mouse.get_pos()
 
         # Convert mouse position to grid coordinates
-        grid_x = mouse_x // self.grid_scale
-        grid_y = mouse_y // self.grid_scale
+        grid_x = (mouse_x - self.offset_x) // self.grid_scale
+        grid_y = (mouse_y - self.offset_y) // self.grid_scale
+        print(grid_x, grid_y)
 
         # Add obstacle to the list if not already present
         if (grid_x, grid_y) not in self.obstacles:
@@ -141,33 +153,21 @@ class Simulation:
     def handle_set_goal(self):
         # Set new goal
         mouse_x, mouse_y = pygame.mouse.get_pos()
-        grid_x = mouse_x / self.grid_scale
-        grid_y = mouse_y / self.grid_scale
-        self.goal = Node(grid_x, grid_y, 0, 0)
+        grid_x = (mouse_x - self.offset_x) / self.grid_scale
+        grid_y = (mouse_y - self.offset_y) / self.grid_scale
+        self.goal = Node(grid_x, grid_y, 90, 0)
         # Replan
         self.update_planner(replan=True)
 
     def run_planner(self):
-        with self.planner_lock:
-            # Prepare planner state
-            self.planner.start = Node(
-                self.robot_pos[0], self.robot_pos[1], self.robot_theta, 0
-            )
-            self.planner.obstacles = self.obstacles
-            self.planner.bounds = self.bounds
-            self.planner.open_set = []
-            self.planner.closed_set = set()
-            self.planner.motion_primitives = self.planner.generate_motion_primitives()
-            self.planner.obstacle_map = self.planner.create_obstacle_map()
-            self.planner.path = []
-            self.planner.search_tree_edges = []
-            self.planner.goal = self.goal
+        # with self.planner_lock:
+        #     self.planner.goal = self.goal
 
         found = False
         # Now run the search outside the lock if the search uses open_set frequently
         # If needed, lock/unlock around heapq operations inside the search method as well.
         found = self.planner.search(
-            self.start
+            Node(self.robot_pos[0], self.robot_pos[1], 0, 0), self.goal
         )  # Make sure search does not modify open_set without a lock
         # Update results back under lock if modifying shared data
         with self.planner_lock:
@@ -182,7 +182,6 @@ class Simulation:
             print(self.waypoint)
 
     def update_simulation(self):
-        pass
         # lookahead_distance = 5
         # k_linear = 5.0
         # k_angular = 5.0
@@ -207,25 +206,21 @@ class Simulation:
         # Move the robot along the current path if available
         # If still planning, we keep using the old path stored in self.path
 
-        # if self.path and self.path_index < len(self.path):
-        #     for p in :
-        #         print()
-        # self.robot_theta += 10
-        # target_node = self.path[self.path_index]
-        # delta_x = target_node.x - self.robot_pos[0]
-        # delta_y = target_node.y - self.robot_pos[1]
-        # delta_theta = (
-        #     target_node.theta - self.robot_theta + 180 + 360
-        # ) % 360 - 180  # shortest angle
+        if self.path and self.path_index < len(self.path):
+            target_node = self.path[self.path_index]
+            delta_x = target_node.x - self.robot_pos[0]
+            delta_y = target_node.y - self.robot_pos[1]
 
-        # # Move towards target node
-        # self.robot_pos[0] += delta_x * 1
-        # self.robot_pos[1] += delta_y * 1
-        # self.robot_theta += delta_theta * 1
+            delta_theta = (
+                target_node.theta - self.robot_theta + 180 + 360
+            ) % 360 - 180  # Shortest angle
 
-        # # Check if we reached this segment of the path
-        # if sqrt(delta_x**2 + delta_y**2) < 0.1 and abs(delta_theta) < 1:
-        #     self.path_index += 1
+            self.robot_pos[0] += delta_x * 1
+            self.robot_pos[1] += delta_y * 1
+            self.robot_theta += delta_theta * 1
+
+            if sqrt(delta_x**2 + delta_y**2) < 0.1 and abs(delta_theta) < 1:
+                self.path_index += 1
 
         # Record previous position if moved enough
         if (
@@ -259,7 +254,7 @@ class Simulation:
     def draw(self):
         self.screen.fill((255, 255, 255))
 
-        # Draw grid
+        # Draw grid with offset
         for x in range(0, Constants.SCREEN_SIZE, self.grid_scale):
             pygame.draw.line(
                 self.screen,
@@ -281,66 +276,85 @@ class Simulation:
                 ),
             )
 
-        # Draw obstacles
+        # Draw obstacles with offset
         for obs in self.obstacles:
             pygame.draw.rect(
                 self.screen,
                 (20, 0, 20),  # color for obstacles
                 (
                     obs[0] * self.grid_scale
-                    - self.grid_scale // 2,  # Top-left x position of the grid cell
-                    (obs[1] - 0.5)
-                    * self.grid_scale,  # Top-left y position of the grid cell
+                    - self.grid_scale // 2
+                    + self.offset_x,  # Top-left x position with offset
+                    (obs[1] - 0.5) * self.grid_scale
+                    + self.offset_y,  # Top-left y position with offset
                     self.grid_scale,  # Width of the grid cell
                     self.grid_scale,  # Height of the grid cell
                 ),
             )
 
-        # Draw start and goal
+        # Draw start and goal with offset
         start_rect = pygame.Rect(
-            int(self.start.x * self.grid_scale - self.vehicle_length_px / 2),
-            int(self.start.y * self.grid_scale - self.vehicle_width_px / 2),
+            int(
+                self.start.x * self.grid_scale
+                - self.vehicle_length_px / 2
+                + self.offset_x
+            ),
+            int(
+                self.start.y * self.grid_scale
+                - self.vehicle_width_px / 2
+                + self.offset_y
+            ),
             self.vehicle_length_px,
             self.vehicle_width_px,
         )
         pygame.draw.rect(self.screen, (0, 255, 0), start_rect, 1)
 
         goal_center = (
-            int(self.goal.x * self.grid_scale),  # X-coordinate of the goal's center
-            int(self.goal.y * self.grid_scale),  # Y-coordinate of the goal's center
+            int(
+                self.goal.x * self.grid_scale + self.offset_x
+            ),  # X-coordinate with offset
+            int(
+                self.goal.y * self.grid_scale + self.offset_y
+            ),  # Y-coordinate with offset
         )
 
         goal_radius = int(Constants.GOAL_TOLERANCE * self.grid_scale)
 
-        # Draw the goal circle on the screen
+        # Draw the goal circle with offset
         pygame.draw.circle(
             self.screen, (255, 0, 255), goal_center, goal_radius, 1
         )  # 1 is the thickness
 
-        # Draw the search tree (yellow lines)
+        # Draw the search tree (yellow lines) with offset
         for edge in self.planner.search_tree_edges:
             parent, child = edge
             pygame.draw.line(
                 self.screen,
                 (255, 200, 0),
-                (int(parent.x * self.grid_scale), int(parent.y * self.grid_scale)),
-                (int(child.x * self.grid_scale), int(child.y * self.grid_scale)),
+                (
+                    int(parent.x * self.grid_scale) + self.offset_x,
+                    int(parent.y * self.grid_scale) + self.offset_y,
+                ),
+                (
+                    int(child.x * self.grid_scale) + self.offset_x,
+                    int(child.y * self.grid_scale) + self.offset_y,
+                ),
                 1,
             )
 
-        # Draw robot vision
+        # Draw robot vision with offset
         pygame.draw.circle(
             self.screen,
             (0, 255, 255),
             (
-                int(self.robot_pos[0] * self.grid_scale),
-                int(self.robot_pos[1] * self.grid_scale),
+                int(self.robot_pos[0] * self.grid_scale) + self.offset_x,
+                int(self.robot_pos[1] * self.grid_scale) + self.offset_y,
             ),
             Constants.VISION_RADIUS * self.grid_scale,
             1,
         )
 
-        # Draw the previous positions as thin-lined rotated rectangles
+        # Draw the previous positions as thin-lined rotated rectangles with offset
         for pos_x, pos_y, pos_theta in self.previous_positions:
             # Create a surface for the vehicle
             vehicle_surface_prev = pygame.Surface(
@@ -357,11 +371,14 @@ class Simulation:
                 vehicle_surface_prev, -pos_theta
             )
             rotated_rect_prev = rotated_vehicle_prev.get_rect(
-                center=(pos_x * self.grid_scale, pos_y * self.grid_scale)
+                center=(
+                    pos_x * self.grid_scale + self.offset_x,
+                    pos_y * self.grid_scale + self.offset_y,
+                )
             )
             self.screen.blit(rotated_vehicle_prev, rotated_rect_prev.topleft)
 
-        # Draw the robot as a rotated rectangle
+        # Draw the robot as a rotated rectangle with offset
         vehicle_surface = pygame.Surface(
             (self.vehicle_length_px, self.vehicle_width_px), pygame.SRCALPHA
         )
@@ -375,27 +392,27 @@ class Simulation:
         rotated_vehicle = pygame.transform.rotate(vehicle_surface, -self.robot_theta)
         rotated_rect = rotated_vehicle.get_rect(
             center=(
-                self.robot_pos[0] * self.grid_scale,
-                self.robot_pos[1] * self.grid_scale,
+                self.robot_pos[0] * self.grid_scale + self.offset_x,
+                self.robot_pos[1] * self.grid_scale + self.offset_y,
             )
         )
 
         # Blit the rotated vehicle onto the screen
         self.screen.blit(rotated_vehicle, rotated_rect.topleft)
 
-        # Draw the predicted path (blue line)
+        # Draw the predicted path (blue line) with offset
         if self.path:
             for i in range(len(self.path) - 1):
                 pygame.draw.line(
                     self.screen,
                     (0, 0, 255),
                     (
-                        int(self.path[i].x * self.grid_scale),
-                        int(self.path[i].y * self.grid_scale),
+                        int(self.path[i].x * self.grid_scale) + self.offset_x,
+                        int(self.path[i].y * self.grid_scale) + self.offset_y,
                     ),
                     (
-                        int(self.path[i + 1].x * self.grid_scale),
-                        int(self.path[i + 1].y * self.grid_scale),
+                        int(self.path[i + 1].x * self.grid_scale) + self.offset_x,
+                        int(self.path[i + 1].y * self.grid_scale) + self.offset_y,
                     ),
                     2,
                 )

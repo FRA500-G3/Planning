@@ -3,7 +3,7 @@ resolution: 1
 angle_resolution: 15
 goal_tolerance: 1
 screen_size: 900
-grid_size: 200
+grid_size: 300
 vision_radius: 10
 vehicle_width: 2
 vehicle_length: 5
