@@ -57,6 +57,9 @@ class Constants:
     WHEEL_BASE = config["wheel_base"]
     MAX_STEERING_ANGLE = config["max_steering_angle"]
     STEP_SIZE = config["step_size"]
+    OFFSET_X = config["offset_x"]
+    OFFSET_Y = config["offset_y"]
+
     GRID_SCALE = SCREEN_SIZE // GRID_SIZE
     TURNING_RADIUS = WHEEL_BASE / sin(radians(MAX_STEERING_ANGLE))
 
@@ -105,8 +108,8 @@ class Simulation:
             self.robot_theta,
         ]
 
-        self.offset_x = 100
-        self.offset_y = 100
+        self.offset_x = Constants.OFFSET_X
+        self.offset_y = Constants.OFFSET_Y
 
         self.planner_lock = Lock()
         self.planning = False
