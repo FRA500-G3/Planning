@@ -145,7 +145,6 @@ class Simulation:
         # Convert mouse position to grid coordinates
         grid_x = (mouse_x - self.offset_x) // self.grid_scale
         grid_y = (mouse_y - self.offset_y) // self.grid_scale
-        print(grid_x, grid_y)
 
         # Add obstacle to the list if not already present
         if (grid_x, grid_y) not in self.obstacles:
