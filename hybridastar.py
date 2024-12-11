@@ -1,4 +1,3 @@
-import threading
 import heapq
 import pygame
 import numpy as np
@@ -40,10 +39,10 @@ class Node:
 
 
 class HybridAStar:
-    def __init__(self, start, obstacles, bounds):
-        self.start = start
+    def __init__(self, obstacles, bounds, angle_resolution, resolution):
         self.obstacles = obstacles
         self.bounds = bounds
+        self.angle_resolution = angle_resolution
         self.motion_primitives = self.generate_motion_primitives()
 
         self.grid_size_phi = int(360 / Constants.ANGLE_RESOLUTION)
@@ -65,13 +64,10 @@ class HybridAStar:
         self.sin_table = np.zeros(self.grid_size_phi)
         self.cos_table = np.zeros(self.grid_size_phi)
         for i in range(self.grid_size_phi):
-            angle_deg = i * Constants.ANGLE_RESOLUTION
+            angle_deg = i * self.angle_resolution
             angle_rad = radians(angle_deg)
             self.sin_table[i] = sin(angle_rad)
             self.cos_table[i] = cos(angle_rad)
-
-        # Lock for multithreading
-        self.lock = threading.Lock()
 
         # State variables for threading
         self.searching = False
@@ -90,9 +86,9 @@ class HybridAStar:
     def generate_motion_primitives(self):
         motions = []
         max_steering_angle = Constants.MAX_STEERING_ANGLE
-        num_angles = int(max_steering_angle / Constants.ANGLE_RESOLUTION)
+        num_angles = int(max_steering_angle / self.angle_resolution)
         steering_angles = [
-            i * Constants.ANGLE_RESOLUTION for i in range(-num_angles, num_angles + 1)
+            i * self.angle_resolution for i in range(-num_angles, num_angles + 1)
         ]
         # Precompute tan for each steering angle to avoid repeated tan computations
         self.tan_values = {
@@ -107,7 +103,7 @@ class HybridAStar:
     def get_state_key(self, node):
         x_index = int(round((node.x - self.bounds[0]) / Constants.RESOLUTION))
         y_index = int(round((node.y - self.bounds[2]) / Constants.RESOLUTION))
-        theta_index = int(node.theta / Constants.ANGLE_RESOLUTION) % self.grid_size_phi
+        theta_index = int(node.theta / self.angle_resolution) % self.grid_size_phi
         return (x_index, y_index, theta_index)
 
     def is_valid(self, node):
@@ -142,7 +138,7 @@ class HybridAStar:
         w = Constants.VEHICLE_WIDTH / 2.0
         l = Constants.VEHICLE_LENGTH / 2.0
 
-        theta_index = int(node.theta / Constants.ANGLE_RESOLUTION) % self.grid_size_phi
+        theta_index = int(node.theta / self.angle_resolution) % self.grid_size_phi
         cos_theta = self.cos_table[theta_index]
         sin_theta = self.sin_table[theta_index]
 
@@ -188,7 +184,7 @@ class HybridAStar:
         dy = self.goal.y - node.y
         distance = sqrt(dx**2 + dy**2)
         dtheta = abs(self.goal.theta - node.theta) % 360
-        if distance < Constants.GOAL_TOLERANCE and dtheta < Constants.ANGLE_RESOLUTION:
+        if distance < Constants.GOAL_TOLERANCE and dtheta < self.angle_resolution:
             return True
         return False
 
@@ -233,13 +229,13 @@ class HybridAStar:
         path.reverse()
         return path
 
-    def search(self):
+    def search(self, start):
         self.searching = True
         # Clear visited array for a new search
         self.visited.fill(False)
 
         # Push the start node into open_set
-        heapq.heappush(self.open_set, (self.heuristic(self.start), self.start))
+        heapq.heappush(self.open_set, (self.heuristic(start), start))
         max_iterations = 1000000
         iterations = 0
 
@@ -254,11 +250,10 @@ class HybridAStar:
             self.visited[x_i, y_i, t_i] = True
 
             if self.is_goal_reached(current):
-                with self.lock:
-                    self.path = self.reconstruct_path(current)
-                    self.found = True
-                    self.search_done = True
-                    self.searching = False
+                self.path = self.reconstruct_path(current)
+                self.found = True
+                self.search_done = True
+                self.searching = False
                 return True
 
             for motion in self.motion_primitives:
@@ -279,26 +274,4 @@ class HybridAStar:
                     heapq.heappush(self.open_set, (total_cost, successor))
                     self.search_tree_edges.append((current, successor))
 
-        with self.lock:
-            self.found = False
-            self.search_done = True
-            self.searching = False
         return False
-
-    def run_search_in_thread(self, goal):
-        """
-        Run the search in a separate thread to avoid blocking.
-        """
-        with self.lock:
-            # Prepare the planner for a new search
-            self.goal = goal
-            self.open_set = []
-            self.search_tree_edges = []
-            self.path = []
-            self.found = False
-            self.search_done = False
-            self.searching = False
-
-        t = threading.Thread(target=self.search)
-        t.start()
-        return t

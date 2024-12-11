@@ -1,0 +1,131 @@
+import numpy as np
+import pygame
+
+# Initialize Pygame
+pygame.init()
+
+# Screen dimensions
+WIDTH, HEIGHT = 800, 600
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Pure Pursuit Simulation")
+import numpy as np
+
+# Colors
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (255, 0, 0)
+BLUE = (0, 0, 255)
+GREEN = (0, 255, 0)
+
+# Simulation parameters
+lookahead_distance = 5
+k_linear = 1.0
+k_angular = 5.0
+dt = 0.01  # Time step
+# Robot's initial state
+# x, y, theta = (11.584261771624245, 31.031968927379133, 66.15946745061504)
+x, y, theta = (13.0, 32.0, 50.0)
+waypoints = [
+    (11.584261771624245, 31.031968927379133, 66.15946745061504),
+    (11.875952472766597, 32.98647634065337, 96.86418315109918),
+    (11.636920030756304, 34.97214083690307, 96.86418315109918),
+    (11.397887588746011, 36.95780533315278, 96.86418315109918),
+    (11.158855146735718, 38.94346982940248, 96.86418315109918),
+    (10.919822704725425, 40.929134325652186, 96.86418315109918),
+    (10.680790262715131, 42.91479882190189, 96.86418315109918),
+    (10.441757820704838, 44.900463318151594, 96.86418315109918),
+    (10.202725378694545, 46.8861278144013, 96.86418315109918),
+    (9.963692936684252, 48.871792310651, 96.86418315109918),
+    (9.724660494673959, 50.85745680690071, 96.86418315109918),
+    (9.485628052663666, 52.84312130315041, 96.86418315109918),
+    (9.246595610653372, 54.828785799400116, 96.86418315109918),
+    (9.00756316864308, 56.81445029564982, 96.86418315109918),
+    (9.842790218780449, 58.51069349838487, 30.704715700484144),
+    (11.748426437575324, 59.033888772918225, 0.0),
+]
+
+# Scale and shift for visualization
+scale = 10
+shift_x, shift_y = 50, 10
+
+
+# Transform coordinates for Pygame visualization
+def transform_coords(x, y):
+    return int(x * scale + shift_x), HEIGHT - int(y * scale + shift_y)
+
+
+# Pure Pursuit Control
+def pure_pursuit_control(
+    x, y, theta, waypoints, lookahead_distance, k_linear: float, k_angular: float
+) -> float:
+    max_dist = -1
+    target_point = None
+    for idx, waypoint in enumerate(waypoints):
+        pygame.draw.circle(screen, RED, transform_coords(waypoint[0], waypoint[1]), 5)
+    for id, point in enumerate(reversed(waypoints)):
+        dist = np.sqrt((point[0] - x) ** 2 + (point[1] - y) ** 2)
+        if dist <= lookahead_distance and dist > max_dist:
+            max_dist = dist
+            target_point = point
+            break
+    if target_point is None:  # No valid target
+        return 0, 0
+    # mark current target node
+    pygame.draw.circle(
+        screen, GREEN, transform_coords(target_point[0], target_point[1]), 8
+    )
+    dx, dy = target_point[0] - x, target_point[1] - y
+    target_theta = np.arctan2(dy, dx)
+    # error
+    heading_err = target_theta - theta
+    dist_err = np.sqrt(dx**2 + dy**2)
+    omega = k_angular * heading_err
+    v = k_linear * dist_err
+    # waiting for rotation if high heading error
+    if abs(heading_err) >= (45.0 / 180.0) * np.pi:
+        v = 0.0
+    return v, omega
+
+
+# Main simulation loop
+running = True
+clock = pygame.time.Clock()
+trajectory = []
+
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+
+    # Clear screen
+    screen.fill(WHITE)
+    # Compute control and update robot's state
+    v, omega = pure_pursuit_control(
+        x, y, theta, waypoints, lookahead_distance, k_linear, k_angular
+    )
+    # update robot states
+    x += v * np.cos(theta) * dt
+    y += v * np.sin(theta) * dt
+    theta += omega * dt
+
+    # Record trajectory
+    trajectory.append((x, y))
+
+    # Draw robot
+    robot_pos = transform_coords(x, y)
+    pygame.draw.circle(screen, BLUE, robot_pos, 8)
+
+    # Draw trajectory
+    for i in range(1, len(trajectory)):
+        pygame.draw.line(
+            screen,
+            GREEN,
+            transform_coords(*trajectory[i - 1]),
+            transform_coords(*trajectory[i]),
+            2,
+        )
+    # Update display
+    pygame.display.flip()
+    clock.tick(60)  # Limit to 10 FPS
+
+pygame.quit()

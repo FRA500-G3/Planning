@@ -12,6 +12,39 @@ with open("config.yaml", "r") as file:
     config = yaml.safe_load(file)
 
 
+# Pure Pursuit Control
+def pure_pursuit_control(
+    x, y, theta, waypoints, lookahead_distance, k_linear: float, k_angular: float
+) -> float:
+    max_dist = -1
+    target_point = None
+    # for idx, waypoint in enumerate(waypoints):
+    #     pygame.draw.circle(screen, RED, transform_coords(waypoint[0], waypoint[1]), 5)
+    for id, point in enumerate(reversed(waypoints)):
+        dist = np.sqrt((point[0] - x) ** 2 + (point[1] - y) ** 2)
+        if dist <= lookahead_distance and dist > max_dist:
+            max_dist = dist
+            target_point = point
+            break
+    if target_point is None:  # No valid target
+        return 0, 0
+    # mark current target node
+    # pygame.draw.circle(
+    #     screen, GREEN, transform_coords(target_point[0], target_point[1]), 8
+    # )
+    dx, dy = target_point[0] - x, target_point[1] - y
+    target_theta = np.arctan2(dy, dx)
+    # error
+    heading_err = target_theta - theta
+    dist_err = np.sqrt(dx**2 + dy**2)
+    omega = k_angular * heading_err
+    v = k_linear * dist_err
+    # waiting for rotation if high heading error
+    if abs(heading_err) >= (45.0 / 180.0) * np.pi:
+        v = 0.0
+    return v, omega
+
+
 class Constants:
     RESOLUTION = config["resolution"]
     ANGLE_RESOLUTION = config["angle_resolution"]
@@ -37,7 +70,14 @@ class Simulation:
         )
         self.clock = pygame.time.Clock()
         self.running = True
-        self.planner = HybridAStar(start, obstacles, bounds)
+        self.angle_resolution = Constants.ANGLE_RESOLUTION
+        self.planner = HybridAStar(
+            obstacles=obstacles,
+            bounds=bounds,
+            angle_resolution=self.angle_resolution,
+            resolution=Constants.RESOLUTION,
+        )
+
         self.start = start
         self.goal = goal
         self.obstacles = obstacles
@@ -48,7 +88,7 @@ class Simulation:
         self.robot_theta = start.theta
 
         self.planner.goal = goal
-        self.found = self.planner.search()
+        self.found = self.planner.search(self.start)
         if not self.found:
             print("No path found!")
         self.path = self.planner.path
@@ -69,6 +109,7 @@ class Simulation:
         self.planner_lock = Lock()
         self.planning = False
         self.planner_thread = None
+        self.waypoint = None
 
     def handle_events(self):
         for event in pygame.event.get():
@@ -125,10 +166,9 @@ class Simulation:
         found = False
         # Now run the search outside the lock if the search uses open_set frequently
         # If needed, lock/unlock around heapq operations inside the search method as well.
-        found = (
-            self.planner.search()
+        found = self.planner.search(
+            self.start
         )  # Make sure search does not modify open_set without a lock
-
         # Update results back under lock if modifying shared data
         with self.planner_lock:
             self.found = found
@@ -138,44 +178,75 @@ class Simulation:
             self.path_index = 0
             self.planning = False
 
+            self.waypoint = [(p.x, p.y, p.theta) for p in self.path]
+            print(self.waypoint)
+
     def update_simulation(self):
         pass
-        # Move the robot along the path
+        # lookahead_distance = 5
+        # k_linear = 5.0
+        # k_angular = 5.0
+        # dt = 0.01  # Time step
+        # if self.waypoint is not None:
+        #     v, omega = pure_pursuit_control(
+        #         self.robot_pos[0],
+        #         self.robot_pos[1],
+        #         self.robot_theta,
+        #         self.waypoint,
+        #         lookahead_distance,
+        #         k_linear,
+        #         k_angular,
+        #     )
+        # else:
+        #     v = 0
+        #     omega = 0
+        # self.robot_pos[0] += v * np.cos(self.robot_theta) * dt
+        # self.robot_pos[1] += v * np.sin(self.robot_theta) * dt
+        # self.robot_theta += omega * dt
+
+        # Move the robot along the current path if available
+        # If still planning, we keep using the old path stored in self.path
+
         # if self.path and self.path_index < len(self.path):
-        #     target_node = self.path[self.path_index]
-        #     delta_x = target_node.x - self.robot_pos[0]
-        #     delta_y = target_node.y - self.robot_pos[1]
-        #     delta_theta = (
-        #         target_node.theta - self.robot_theta + 180 + 360
-        #     ) % 360 - 180  # Shortest angle
+        #     for p in :
+        #         print()
+        # self.robot_theta += 10
+        # target_node = self.path[self.path_index]
+        # delta_x = target_node.x - self.robot_pos[0]
+        # delta_y = target_node.y - self.robot_pos[1]
+        # delta_theta = (
+        #     target_node.theta - self.robot_theta + 180 + 360
+        # ) % 360 - 180  # shortest angle
 
-        #     self.robot_pos[0] += delta_x * 1
-        #     self.robot_pos[1] += delta_y * 1
-        #     self.robot_theta += delta_theta * 1
+        # # Move towards target node
+        # self.robot_pos[0] += delta_x * 1
+        # self.robot_pos[1] += delta_y * 1
+        # self.robot_theta += delta_theta * 1
 
-        #     if sqrt(delta_x**2 + delta_y**2) < 0.1 and abs(delta_theta) < 1:
-        #         self.path_index += 1
+        # # Check if we reached this segment of the path
+        # if sqrt(delta_x**2 + delta_y**2) < 0.1 and abs(delta_theta) < 1:
+        #     self.path_index += 1
 
-        #     # Record previous position if moved enough
-        #     if (
-        #         sqrt(
-        #             (self.robot_pos[0] - self.last_recorded_pos[0]) ** 2
-        #             + (self.robot_pos[1] - self.last_recorded_pos[1]) ** 2
-        #         )
-        #         >= 0.5
-        #     ):
-        #         self.previous_positions.append(
-        #             (
-        #                 self.last_recorded_pos[0],
-        #                 self.last_recorded_pos[1],
-        #                 self.robot_theta,
-        #             )
-        #         )
-        #         self.last_recorded_pos = [
-        #             self.robot_pos[0],
-        #             self.robot_pos[1],
-        #             self.robot_theta,
-        #         ]
+        # Record previous position if moved enough
+        if (
+            sqrt(
+                (self.robot_pos[0] - self.last_recorded_pos[0]) ** 2
+                + (self.robot_pos[1] - self.last_recorded_pos[1]) ** 2
+            )
+            >= 0.5
+        ):
+            self.previous_positions.append(
+                (
+                    self.last_recorded_pos[0],
+                    self.last_recorded_pos[1],
+                    self.robot_theta,
+                )
+            )
+        self.last_recorded_pos = [
+            self.robot_pos[0],
+            self.robot_pos[1],
+            self.robot_theta,
+        ]
 
     def update_planner(self, replan=False):
         # Only start re-planning if not already planning
