@@ -6,8 +6,8 @@ with open("config.yaml", "r") as file:
     config = yaml.safe_load(file)
 if __name__ == "__main__":
     # Initialize start, goal, obstacles, bounds
-    start = Node(10, 30, 0, 0)
-    goal = Node(14, 30, 0, 0)
+    start = Node(0, 0, 0, 0)
+    goal = Node(0, 0, 0, 0)
 
     grid_size = config["grid_size"]
     lane_thickness = 1
@@ -40,11 +40,14 @@ if __name__ == "__main__":
 
     # # Convert R_points back to a sorted list of tuples
     # R_points = sorted(R_points)
-    inverted_grid = np.load("inverted_grid.npy")
+    inverted_grid = np.load("Town05_road_grid_origin.npy")
     # Determine obstacles from the grid
     # Assuming `inverted_grid` is a binary grid where 1 represents free space and 0 represents obstacles
+    import code
+
+    # code.interact(local=locals())
     obstacles = [
-        (x, y)
+        (x - 50, y - 50)
         for x in range(inverted_grid.shape[0])
         for y in range(inverted_grid.shape[1])
         if inverted_grid[x, y] == 1
@@ -52,7 +55,7 @@ if __name__ == "__main__":
     # Remove duplicates and sort
     # obstacles = inverted_grid
 
-    bounds = (0, config["grid_size"], 0, config["grid_size"])
+    bounds = (-10, config["grid_size"], -10, config["grid_size"])
     # bounds = (0, 50, 0, 50)
 
     # Run simulation

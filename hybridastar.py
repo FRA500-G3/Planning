@@ -201,7 +201,7 @@ class HybridAStar:
         else:
             # Use precomputed tan if available
             turning_radius = Constants.WHEEL_BASE / self.tan_values[steering_angle_deg]
-            delta_theta_rad = ds / turning_radius
+            delta_theta_rad = np.arctan(ds / turning_radius)
             theta_rad_next = theta_rad + delta_theta_rad
             x = current.x + turning_radius * (sin(theta_rad_next) - sin(theta_rad))
             y = current.y - turning_radius * (cos(theta_rad_next) - cos(theta_rad))
