@@ -10,8 +10,6 @@ with open("config.yaml", "r") as file:
 
 
 class Constants:
-    RESOLUTION = config["resolution"]
-    ANGLE_RESOLUTION = config["angle_resolution"]
     GOAL_TOLERANCE = config["goal_tolerance"]
     SCREEN_SIZE = config["screen_size"]
     GRID_SIZE = config["grid_size"]
@@ -43,11 +41,13 @@ class HybridAStar:
         self.obstacles = obstacles
         self.bounds = bounds
         self.angle_resolution = angle_resolution
+        self.resolution = resolution
+
         self.motion_primitives = self.generate_motion_primitives()
 
-        self.grid_size_phi = int(360 / Constants.ANGLE_RESOLUTION)
-        self.map_width = int((bounds[1] - bounds[0]) / Constants.RESOLUTION)
-        self.map_height = int((bounds[3] - bounds[2]) / Constants.RESOLUTION)
+        self.grid_size_phi = int(360 / self.angle_resolution)
+        self.map_width = int((bounds[1] - bounds[0]) / self.resolution)
+        self.map_height = int((bounds[3] - bounds[2]) / self.resolution)
 
         self.obstacle_map = self.create_obstacle_map()
 
@@ -77,8 +77,8 @@ class HybridAStar:
     def create_obstacle_map(self):
         obstacle_map = np.zeros((self.map_width, self.map_height), dtype=bool)
         for obs in self.obstacles:
-            x_index = int((obs[0] - self.bounds[0]) / Constants.RESOLUTION)
-            y_index = int((obs[1] - self.bounds[2]) / Constants.RESOLUTION)
+            x_index = int((obs[0] - self.bounds[0]) / self.resolution)
+            y_index = int((obs[1] - self.bounds[2]) / self.resolution)
             if 0 <= x_index < self.map_width and 0 <= y_index < self.map_height:
                 obstacle_map[x_index, y_index] = True
         return obstacle_map
@@ -101,8 +101,8 @@ class HybridAStar:
         return motions
 
     def get_state_key(self, node):
-        x_index = int(round((node.x - self.bounds[0]) / Constants.RESOLUTION))
-        y_index = int(round((node.y - self.bounds[2]) / Constants.RESOLUTION))
+        x_index = int(round((node.x - self.bounds[0]) / self.resolution))
+        y_index = int(round((node.y - self.bounds[2]) / self.resolution))
         theta_index = int(node.theta / self.angle_resolution) % self.grid_size_phi
         return (x_index, y_index, theta_index)
 
@@ -117,8 +117,8 @@ class HybridAStar:
         # Check collision with obstacles using the vehicle's footprint
         vehicle_corners = self.get_vehicle_corners(node)
         for corner in vehicle_corners:
-            x_index = int(round((corner[0] - self.bounds[0]) / Constants.RESOLUTION))
-            y_index = int(round((corner[1] - self.bounds[2]) / Constants.RESOLUTION))
+            x_index = int(round((corner[0] - self.bounds[0]) / self.resolution))
+            y_index = int(round((corner[1] - self.bounds[2]) / self.resolution))
             if (
                 x_index < 0
                 or x_index >= self.map_width
@@ -156,13 +156,13 @@ class HybridAStar:
         dx = x2 - x1
         dy = y2 - y1
         distance = sqrt(dx**2 + dy**2)
-        steps = int(distance / (Constants.RESOLUTION / 2))
+        steps = int(distance / (self.resolution / 2))
         for i in range(steps + 1):
             t = i / max(steps, 1)
             x = x1 + t * dx
             y = y1 + t * dy
-            x_index = int(round((x - self.bounds[0]) / Constants.RESOLUTION))
-            y_index = int(round((y - self.bounds[2]) / Constants.RESOLUTION))
+            x_index = int(round((x - self.bounds[0]) / self.resolution))
+            y_index = int(round((y - self.bounds[2]) / self.resolution))
             if (
                 x_index < 0
                 or x_index >= self.map_width
